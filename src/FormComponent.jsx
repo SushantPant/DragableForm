@@ -1,35 +1,36 @@
 import React, { useState, useMemo } from "react";
 import { useDrop } from "react-dnd";
-import { useDrag } from "react-dnd";
-import { Formik, Field, Form } from "formik";
-import * as Yup from "yup";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
+import DragItem from "./DragItem";
+import FormEditor from "./FormEditor";
+import PreviewMode from "./PreviewMode";
 
-const DragItem = ({ type, label }) => {
-  const [{ isDragging }, drag] = useDrag({
-    type: "FORM_FIELD",
-    item: { type, label },
-    collect: (monitor) => ({
-      isDragging: monitor.isDragging(),
-    }),
-  });
+// Generate JSON Schema function
+const generateJsonSchema = (formFields) => {
+  const properties = formFields.reduce((acc, field) => {
+    // Skip fields that are "Text Field", "Radio", or "Select"
+    if (["Text Field", "Radio", "Select"].includes(field.label)) {
+      return acc;
+    }
 
-  return (
-    <div
-      ref={drag}
-      style={{
-        padding: "10px",
-        margin: "5px",
-        backgroundColor: "lightgray",
-        cursor: "move",
-        opacity: isDragging ? 0.5 : 1,
-      }}
-    >
-      {label}
-    </div>
-  );
+    acc[field.label] = {
+      type: field.fieldType === 'textfield' ? 'string' : field.fieldType,
+      ...(field.required && { required: true }),
+      ...(field.fieldType === 'select' || field.fieldType === 'radio') && {
+        enum: field.options ? field.options.split(',') : []
+      }
+    };
+    return acc;
+  }, {});
+
+  return {
+    type: "object",
+    properties,
+    required: formFields.filter(field => field.required).map(field => field.label),
+  };
 };
+
 
 const FormComponents = () => {
   const [formFields, setFormFields] = useState([]);
@@ -37,18 +38,23 @@ const FormComponents = () => {
   const [draggedField, setDraggedField] = useState(null);
 
   const handleAddField = (field) => {
-    if (!formFields.some(existingField => existingField.label === field.label)) {
+    setDraggedField(field.fieldType);
+    if (!formFields.some((existingField) => existingField.label === field.label)) {
       setFormFields([...formFields, field]);
-      setDraggedField(field.fieldType);
     } else {
-      alert("Field with this label already exists");
+      if(field.label==="Text Field"||field.label==="Radio"||field.label==="Select"){ }
+      else{
+        alert("Field with this label already exists");
+      }
     }
-
   };
 
   const handleSubmit = () => {
-    isPreview !== true ? setIsPreview(true) : setIsPreview(false);
+    setIsPreview((prev) => !prev);
 
+    // Generate the JSON Schema when submitting
+    const jsonSchema = generateJsonSchema(formFields);
+    console.log("Generated JSON Schema:", JSON.stringify(jsonSchema, null, 2));
   };
 
   const [{ isOver }, drop] = useDrop({
@@ -73,21 +79,6 @@ const FormComponents = () => {
     []
   );
 
-  const validationSchema = useMemo(
-    () =>
-      Yup.object().shape(
-        formFields.reduce((schema, field) => {
-          if (field.required) {
-            schema[field.label] = Yup.string().required(
-              `${field.label} is required`
-            );
-          }
-          return schema;
-        }, {})
-      ),
-    [formFields]
-  );
-
   return (
     <DndProvider backend={HTML5Backend}>
       <div>
@@ -95,7 +86,7 @@ const FormComponents = () => {
 
         <div style={{ display: "flex", marginBottom: "20px" }}>
           {Object.values(draggingItems).map((item) => (
-            <DragItem type={item.type} label={item.label} />
+            <DragItem type={item.type} label={item.label} key={item.type} />
           ))}
         </div>
 
@@ -113,70 +104,7 @@ const FormComponents = () => {
           ) : (
             <div>
               <h2>Edit Mode</h2>
-              <Formik
-                initialValues={{
-                  label: "",
-                  required: false,
-                  hidden: false,
-                  fieldType: draggedField || "textfield",
-                  options: "",
-                }}
-                validationSchema={Yup.object({
-                  label: Yup.string().required("Label is required"),
-                })}
-                onSubmit={(values) => {
-                  if (!values.label) {
-                    alert("Label is required");
-                    return;
-                  }
-                  handleAddField(values);
-                }}
-              >
-                {({ setFieldValue, values }) => (
-                  <Form>
-                    <div>
-                      <Field name="label" placeholder="Label" />
-                    </div>
-                    <div>
-                      <label>
-                        <Field type="checkbox" name="required" />
-                        Required
-                      </label>
-                    </div>
-
-                    {values.fieldType === "textfield" && (
-                      <div>
-                        <label>
-                          <Field type="checkbox" name="hidden" />
-                          Hidden
-                        </label>
-                      </div>
-                    )}
-
-                    <div>
-                      <Field as="select" name="fieldType">
-                        <option value="textfield">Textfield</option>
-                        <option value="radio">Radio</option>
-                        <option value="select">Select</option>
-                      </Field>
-                    </div>
-                    {["radio", "select"].includes(values.fieldType) && (
-                      <div>
-                        <Field
-                          name="options"
-                          placeholder="Comma separated options"
-                          onChange={(e) =>
-                            setFieldValue("options", e.target.value)
-                          }
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <button type="submit">Add Field</button>
-                    </div>
-                  </Form>
-                )}
-              </Formik>
+              <FormEditor handleAddField={handleAddField} draggedField={draggedField} />
               <div>
                 <button onClick={handleSubmit}>Preview Mode</button>
               </div>
@@ -184,95 +112,7 @@ const FormComponents = () => {
           )}
         </div>
 
-        {isPreview && (
-          <div>
-            <h2>Preview Mode</h2>
-            <Formik
-              initialValues={{}}
-              validationSchema={validationSchema}
-              onSubmit={(values) => {
-                console.log(values);
-              }}
-            >
-              {({ values, errors, touched }) => (
-                <Form>
-                  {formFields.map((field, idx) => {
-                    if (
-                      field.fieldType === "textfield" &&
-                      field.label !== "Text Field"
-                    ) {
-                      return (
-                        <div key={idx}>
-                          <label>{field.label}</label>
-                          <Field
-                            type={field.hidden ? "password" : "text"}
-                            name={field.label}
-                          />
-                          {errors[field.label] && touched[field.label] && (
-                            <div style={{ color: "red" }}>
-                              {errors[field.label]}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-                    if (
-                      field.fieldType === "radio" &&
-                      field.label !== "Radio"
-                    ) {
-                      const options = field.options
-                        ? field.options.split(",")
-                        : [];
-                      return (
-                        <div key={idx}>
-                          <label>{field.label}</label>
-                          {options.map((option, index) => (
-                            <div key={index}>
-                              <Field
-                                type="radio"
-                                name={field.label}
-                                value={option}
-                              />
-                              {option}
-                            </div>
-                          ))}
-                        </div>
-                      );
-                    }
-                    if (
-                      field.fieldType === "select" &&
-                      field.label !== "Select"
-                    ) {
-                      const options = field.options
-                        ? field.options.split(",")
-                        : [];
-                      return (
-                        <div key={idx}>
-                          <label>{field.label}</label>
-                          <Field as="select" name={field.label}>
-                            <option value="" disabled selected>
-                              Select {field.label}
-                            </option>
-                            {options.map((option, index) => (
-                              <option key={index} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </Field>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-
-                  <div>
-                    <button type="submit">Submit</button>
-                  </div>
-                </Form>
-              )}
-            </Formik>
-          </div>
-        )}
+        {isPreview && <PreviewMode formFields={formFields} />}
       </div>
     </DndProvider>
   );
