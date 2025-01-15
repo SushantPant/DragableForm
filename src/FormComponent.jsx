@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useDrop } from "react-dnd";
 import { useDrag } from "react-dnd";
 import { Formik, Field, Form } from "formik";
@@ -34,17 +34,22 @@ const DragItem = ({ type, label }) => {
 const FormComponents = () => {
   const [formFields, setFormFields] = useState([]);
   const [isPreview, setIsPreview] = useState(false);
-  const [draggedField, setDraggedField] = useState(null); 
+  const [draggedField, setDraggedField] = useState(null);
 
   const handleAddField = (field) => {
-    setFormFields([...formFields, field]);
-    setDraggedField(field.fieldType); 
+    if (!formFields.some(existingField => existingField.label === field.label)) {
+      setFormFields([...formFields, field]);
+      setDraggedField(field.fieldType);
+    } else {
+      alert("Field with this label already exists");
+    }
+
   };
 
   const handleSubmit = () => {
-    setIsPreview(true);
-  };
+    isPreview !== true ? setIsPreview(true) : setIsPreview(false);
 
+  };
 
   const [{ isOver }, drop] = useDrop({
     accept: "FORM_FIELD",
@@ -58,20 +63,31 @@ const FormComponents = () => {
       isOver: monitor.isOver(),
     }),
   });
-  const draggingItems = {
-    textfield: {
-      type: "textfield",
-      label: "Text Field",
-    },
-    radio: {
-      type: "radio",
-      label: "Radio",
-    },
-    select: {
-      type: "select",
-      label: "Select",
-    },
-  };
+
+  const draggingItems = useMemo(
+    () => ({
+      textfield: { type: "textfield", label: "Text Field" },
+      radio: { type: "radio", label: "Radio" },
+      select: { type: "select", label: "Select" },
+    }),
+    []
+  );
+
+  const validationSchema = useMemo(
+    () =>
+      Yup.object().shape(
+        formFields.reduce((schema, field) => {
+          if (field.required) {
+            schema[field.label] = Yup.string().required(
+              `${field.label} is required`
+            );
+          }
+          return schema;
+        }, {})
+      ),
+    [formFields]
+  );
+
   return (
     <DndProvider backend={HTML5Backend}>
       <div>
@@ -173,16 +189,7 @@ const FormComponents = () => {
             <h2>Preview Mode</h2>
             <Formik
               initialValues={{}}
-              validationSchema={Yup.object().shape(
-                formFields.reduce((schema, field) => {
-                  if (field.required) {
-                    schema[field.label] = Yup.string().required(
-                      `${field.label} is required`
-                    );
-                  }
-                  return schema;
-                }, {})
-              )}
+              validationSchema={validationSchema}
               onSubmit={(values) => {
                 console.log(values);
               }}
@@ -238,7 +245,7 @@ const FormComponents = () => {
                     ) {
                       const options = field.options
                         ? field.options.split(",")
-                        : []; 
+                        : [];
                       return (
                         <div key={idx}>
                           <label>{field.label}</label>
